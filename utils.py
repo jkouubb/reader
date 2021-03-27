@@ -1,11 +1,8 @@
 import os
+import math
 
 import torch
-import torch.nn.functional
 import matplotlib.pyplot as plt
-import skimage.transform
-import skimage.color
-import skimage.filters
 import skimage.io
 
 import numpy as np
@@ -25,14 +22,7 @@ def k_means_anchor(dataset):
     print(result.cluster_centers_)
 
 
-def calculate_iou(box1, box2):
-    """
-    计算两个矩形的iou值
-    :param box1: 矩形A
-    :param box2: 矩形B
-    :return: iou值
-    """
-
+def calculate_giou(box1, box2):
     box1_area = torch.clamp((box1[:, 2] - box1[:, 0]), min=0) * torch.clamp((box1[:, 3] - box1[:, 1]), min=0)
     box2_area = torch.clamp((box2[:, 2] - box2[:, 0]), min=0) * torch.clamp((box2[:, 3] - box2[:, 1]), min=0)
 
@@ -47,6 +37,63 @@ def calculate_iou(box1, box2):
     iou = inter_area / (box1_area + box2_area - inter_area)
 
     return iou - ((outer_area - (box1_area + box2_area - inter_area)) / outer_area)
+
+
+def calculate_ciou_loss(box1, box2):
+
+    box1_area = torch.clamp((box1[:, 2] - box1[:, 0]), min=0) * torch.clamp((box1[:, 3] - box1[:, 1]), min=0)
+    box2_area = torch.clamp((box2[:, 2] - box2[:, 0]), min=0) * torch.clamp((box2[:, 3] - box2[:, 1]), min=0)
+
+    inter_width = torch.clamp(torch.min(box1[:, 2], box2[:, 2]) - torch.max(box1[:, 0], box2[:, 0]), min=0)
+    inter_height = torch.clamp(torch.min(box1[:, 3], box2[:, 3]) - torch.max(box1[:, 1], box2[:, 1]), min=0)
+    inter_area = inter_width * inter_height
+
+    iou = inter_area / (box1_area + box2_area - inter_area)
+
+    rate1 = torch.arctan((box1[:, 2] - box1[:, 0]) / (box1[:, 3] - box1[:, 1]))
+    rate2 = torch.arctan((box2[:, 2] - box2[:, 0]) / (box2[:, 3] - box2[:, 1]))
+
+    v = (4 / math.pi) * torch.pow(rate1 - rate2, 2)
+    alpha = v / (1 - iou + v)
+
+    box1_center_x = torch.clamp((box1[:, 2] + box1[:, 2]) / 2, min=0)
+    box1_center_y = torch.clamp((box1[:, 3] + box1[:, 1]) / 2, min=0)
+
+    box2_center_x = torch.clamp((box1[:, 2] + box1[:, 2]) / 2, min=0)
+    box2_center_y = torch.clamp((box1[:, 3] + box1[:, 1]) / 2, min=0)
+
+    center_distance = torch.pow(box1_center_x - box2_center_x, 2) + torch.pow(box1_center_y - box2_center_y, 2)
+
+    outer_width = torch.clamp(torch.max(box1[:, 2], box2[:, 2]) - torch.min(box1[:, 0], box2[:, 0]), min=0)
+    outer_height = torch.clamp(torch.max(box1[:, 3], box2[:, 3]) - torch.min(box1[:, 1], box2[:, 1]), min=0)
+    outer_diagonal_length = torch.pow(outer_width, 2) + torch.pow(outer_height, 2)
+
+    return 1 - iou + center_distance / outer_diagonal_length + alpha * v
+
+
+def calculate_diou(box1, box2):
+    box1_area = torch.clamp((box1[:, 2] - box1[:, 0]), min=0) * torch.clamp((box1[:, 3] - box1[:, 1]), min=0)
+    box2_area = torch.clamp((box2[:, 2] - box2[:, 0]), min=0) * torch.clamp((box2[:, 3] - box2[:, 1]), min=0)
+
+    inter_width = torch.clamp(torch.min(box1[:, 2], box2[:, 2]) - torch.max(box1[:, 0], box2[:, 0]), min=0)
+    inter_height = torch.clamp(torch.min(box1[:, 3], box2[:, 3]) - torch.max(box1[:, 1], box2[:, 1]), min=0)
+    inter_area = inter_width * inter_height
+
+    iou = inter_area / (box1_area + box2_area - inter_area)
+
+    box1_center_x = torch.clamp((box1[:, 2] + box1[:, 2]) / 2, min=0)
+    box1_center_y = torch.clamp((box1[:, 3] + box1[:, 1]) / 2, min=0)
+
+    box2_center_x = torch.clamp((box1[:, 2] + box1[:, 2]) / 2, min=0)
+    box2_center_y = torch.clamp((box1[:, 3] + box1[:, 1]) / 2, min=0)
+
+    center_distance = torch.pow(box1_center_x - box2_center_x, 2) + torch.pow(box1_center_y - box2_center_y, 2)
+
+    outer_width = torch.clamp(torch.max(box1[:, 2], box2[:, 2]) - torch.min(box1[:, 0], box2[:, 0]), min=0)
+    outer_height = torch.clamp(torch.max(box1[:, 3], box2[:, 3]) - torch.min(box1[:, 1], box2[:, 1]), min=0)
+    outer_diagonal_length = torch.pow(outer_width, 2) + torch.pow(outer_height, 2)
+
+    return 1 - iou + center_distance / outer_diagonal_length
 
 
 def create_judger_train_data(image_path, results):

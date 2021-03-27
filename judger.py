@@ -13,89 +13,87 @@ import skimage.feature
 
 import matplotlib.pyplot as plt
 
-import random
 
+class _BasicBlock(nn.Module):
+    extend = 1
 
-class _ConvLayer(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, padding, stride):
-        super().__init__()
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size,
-                              padding=padding, stride=stride)
-        self.norm = nn.BatchNorm2d(out_channels)
-        self.relu = nn.ReLU()
+    def __init__(self, in_channel, out_channel, stride=1, down_sample=None):
+        super(_BasicBlock, self).__init__()
 
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.norm(x)
-        x = self.relu(x)
+        self.layer = nn.Sequential(
+            nn.Conv2d(in_channel, out_channel, kernel_size=3, stride=stride, padding=1),
+            nn.BatchNorm2d(out_channel),
+            nn.LeakyReLU(True),
+            nn.Conv2d(out_channel, out_channel, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(out_channel)
+        )
 
-        return x
-
-
-class _MaxPoolLayer(nn.Module):
-    def __init__(self, kernel_size, padding, stride):
-        super().__init__()
-        self.max_pool = nn.MaxPool2d(kernel_size=kernel_size, padding=padding, stride=stride)
-        self.relu = nn.ReLU()
+        self.down_sample = down_sample
+        self.relu = nn.LeakyReLU(True)
 
     def forward(self, x):
-        x = self.max_pool(x)
-        x = self.relu(x)
-        return x
+        tmp = x
+        out = self.layer(x)
+
+        if self.down_sample is not None:
+            tmp = self.down_sample(x)
+
+        out = out + tmp
+        out = self.relu(out)
+
+        return out
 
 
 class Judger(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.conv_layer1 = _ConvLayer(in_channels=2, out_channels=64, kernel_size=3, padding=1, stride=1)
-        self.conv_layer2 = _ConvLayer(in_channels=64, out_channels=64, kernel_size=3, padding=1, stride=1)
-        self.max_pool_layer1 = _MaxPoolLayer(kernel_size=3, padding=1, stride=2)
-        self.conv_layer3 = _ConvLayer(in_channels=64, out_channels=128, kernel_size=3, padding=1, stride=1)
-        self.conv_layer4 = _ConvLayer(in_channels=128, out_channels=128, kernel_size=3, padding=1, stride=1)
-        self.max_pool_layer2 = _MaxPoolLayer(kernel_size=3, padding=1, stride=2)
-        self.conv_layer5 = _ConvLayer(in_channels=128, out_channels=256, kernel_size=3, padding=1, stride=1)
-        self.conv_layer6 = _ConvLayer(in_channels=256, out_channels=256, kernel_size=3, padding=1, stride=1)
-        self.conv_layer7 = _ConvLayer(in_channels=256, out_channels=256, kernel_size=3, padding=1, stride=1)
-        self.max_pool_layer3 = _MaxPoolLayer(kernel_size=3, padding=1, stride=2)
-        self.conv_layer8 = _ConvLayer(in_channels=256, out_channels=512, kernel_size=3, padding=1, stride=1)
-        self.conv_layer9 = _ConvLayer(in_channels=512, out_channels=512, kernel_size=3, padding=1, stride=1)
-        self.conv_layer10 = _ConvLayer(in_channels=512, out_channels=512, kernel_size=3, padding=1, stride=1)
-        self.max_pool_layer4 = _MaxPoolLayer(kernel_size=3, padding=1, stride=2)
-        self.conv_layer11 = _ConvLayer(in_channels=512, out_channels=512, kernel_size=3, padding=1, stride=1)
-        self.conv_layer12 = _ConvLayer(in_channels=512, out_channels=512, kernel_size=3, padding=1, stride=1)
-        self.conv_layer13 = _ConvLayer(in_channels=512, out_channels=512, kernel_size=3, padding=1, stride=1)
-        self.max_pool_layer5 = _MaxPoolLayer(kernel_size=3, padding=1, stride=2)
-        self.full_connect1 = nn.Linear(in_features=7 * 7 * 512, out_features=4096)
-        self.full_connect2 = nn.Linear(in_features=4096, out_features=4096)
-        self.full_connect3 = nn.Linear(in_features=4096, out_features=1000)
-        self.full_connect4 = nn.Linear(in_features=1000, out_features=1)
+    def __init__(self,):
+        super(Judger, self).__init__()
+
+        self.in_channel = 64
+
+        self.layer1 = nn.Sequential(
+            nn.Conv2d(2, 64, kernel_size=7, stride=2, padding=3, bias=False),
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(True),
+            nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        )
+
+        self.layer2 = self._build_block(64, 2)
+        self.layer3 = self._build_block(128, 2, 2)
+        self.layer4 = self._build_block(256, 2, 2)
+        self.layer5 = self._build_block(512, 2, 2)
+
+        self.average_pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.full_connect = nn.Linear(512, 1)
+        self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        x = self.conv_layer1(x)
-        x = self.conv_layer2(x)
-        x = self.max_pool_layer1(x)
-        x = self.conv_layer3(x)
-        x = self.conv_layer4(x)
-        x = self.max_pool_layer2(x)
-        x = self.conv_layer5(x)
-        x = self.conv_layer6(x)
-        x = self.conv_layer7(x)
-        x = self.max_pool_layer3(x)
-        x = self.conv_layer8(x)
-        x = self.conv_layer9(x)
-        x = self.conv_layer10(x)
-        x = self.max_pool_layer4(x)
-        x = self.conv_layer11(x)
-        x = self.conv_layer12(x)
-        x = self.conv_layer13(x)
-        x = self.max_pool_layer5(x)
-        x = x.view(x.shape[0], -1)
-        x = self.full_connect1(x)
-        x = self.full_connect2(x)
-        x = self.full_connect3(x)
-        x = self.full_connect4(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        x = self.layer5(x)
+        x = self.average_pool(x)
+        x = torch.flatten(x, 1)
+        x = self.full_connect(x)
+        # x = self.sigmoid(x)
 
         return x
+
+    def _build_block(self, out_channel, block_num, stride=1):
+        down_sample = None
+        if stride != 1 or self.in_channel != out_channel * _BasicBlock.extend:
+            down_sample = nn.Sequential(
+                nn.Conv2d(self.in_channel, out_channel * _BasicBlock.extend, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(out_channel * _BasicBlock.extend)
+            )
+
+        layers = [_BasicBlock(self.in_channel, out_channel, stride, down_sample)]
+
+        self.in_channel = out_channel * _BasicBlock.extend
+        for i in range(block_num-1):
+            layers.append(_BasicBlock(self.in_channel, out_channel))
+
+        return nn.Sequential(*layers)
 
 
 class JudgerDataSet(torch.utils.data.Dataset):
@@ -109,48 +107,29 @@ class JudgerDataSet(torch.utils.data.Dataset):
     def __getitem__(self, index):
         image1 = skimage.io.imread('./judger_train_data/{}.jpg'.format(self.index_list[index][0]))
         image1 = skimage.transform.resize(image1, (224, 224, 3))
-        image1 = image1.transpose((2, 0, 1))
-        image1 = (image1[0] + image1[1] + image1[2]) / (3 * 255.0)
-
-        # random_change1 = random.randint(0, 9)
-        # random_angle1 = random.randint(0, 3)
-        #
-        # if random_change1 < 5:
-        #     image1 = skimage.transform.rotate(image1, 90 * random_angle1)
-
-        img1_threshold = skimage.filters.threshold_li(image1)
-        img1_mask = numpy.zeros_like(image1)
-        img1_mask[image1 < img1_threshold] = 1
-        img1_mask[image1 > img1_threshold] = 2
-        image1 = skimage.segmentation.watershed(image1, img1_mask)
-        image1 = image1.astype(numpy.float32)
+        image1 = skimage.color.rgb2gray(image1)
+        img1_1 = skimage.filters.gaussian(image1, sigma=2)
+        img1_2 = skimage.filters.gaussian(image1, sigma=1)
+        image1 = (img1_1 - img1_2).astype(numpy.float32)
+        image1 = torch.from_numpy(image1)
 
         image2 = skimage.io.imread('./judger_train_data/{}.jpg'.format(self.index_list[index][1]))
         image2 = skimage.transform.resize(image2, (224, 224, 3))
-        image2 = image2.transpose((2, 0, 1))
-        image2 = (image2[0] + image2[1] + image2[2]) / (3 * 255.0)
+        image2 = skimage.color.rgb2gray(image2)
+        img2_1 = skimage.filters.gaussian(image2, sigma=2)
+        img2_2 = skimage.filters.gaussian(image2, sigma=1)
+        image2 = (img2_1 - img2_2).astype(numpy.float32)
+        image2 = torch.from_numpy(image2)
 
-        # random_change2 = random.randint(0, 9)
-        # random_angle2 = random.randint(0, 3)
-        #
-        # if random_change2 < 5:
-        #     image2 = skimage.transform.rotate(image2, 90 * random_angle2)
-
-        img2_threshold = skimage.filters.threshold_li(image2)
-        img2_mask = numpy.zeros_like(image2)
-        img2_mask[image2 < img2_threshold] = 1
-        img2_mask[image2 > img2_threshold] = 2
-        image2 = skimage.segmentation.watershed(image2, img2_mask)
-        image2 = image2.astype(numpy.float32)
-
-        image = torch.stack((torch.from_numpy(image1), torch.from_numpy(image2)))
+        image = torch.stack((image1, image2))
 
         # label = [0, 0]
         # label[self.index_list[index][2]] = 1
-        label = self.index_list[index][2]
 
-        if label == 0:
-            label = -1
+        label = [self.index_list[index][2]]
+
+        if label[0] == 0:
+            label[0] = -1
 
         return image, label
 
@@ -159,8 +138,9 @@ class JudgerDataSet(torch.utils.data.Dataset):
 
 
 class JudgerManager:
-    def __init__(self, param_path, train_epoch=300, learn_rate=1e-3, batch_size=8):
+    def __init__(self, param_path, train_epoch=300, learn_rate=1e-1, batch_size=8):
         self.model = Judger()
+
         self.param_path = param_path
 
         if os.path.exists(self.param_path):
@@ -178,9 +158,10 @@ class JudgerManager:
         train_data_loader = torch.utils.data.DataLoader(dataset=train_data_set, batch_size=self.batch_size,
                                                         collate_fn=_judger_collate)
 
-        # optimizer = torch.optim.Adam(params=self.model.parameters(), lr=self.learn_rate, weight_decay=5e-5)
-        optimizer = torch.optim.SGD(params=self.model.parameters(), lr=self.learn_rate, momentum=0.9, weight_decay=5e-5)
-        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer=optimizer, milestones=[60, 130, 210, 300, 400], gamma=0.6)
+        optimizer = torch.optim.Adam(params=self.model.parameters(), lr=self.learn_rate, weight_decay=5e-4)
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer=optimizer, milestones=[20, 90, 150, 220], gamma=0.1)
+
+        bce = nn.BCELoss()
 
         self.model.train()
         loss_list = []
@@ -196,7 +177,7 @@ class JudgerManager:
 
                 result = self.model(images.cuda())
 
-                loss = torch.clamp(1 - annotations.cuda().float() * result, min=0).mean()
+                loss = torch.abs(1 - result * annotations.cuda()).sum()
 
                 average_loss += loss
 
@@ -221,37 +202,24 @@ class JudgerManager:
 
     def test(self, image1, image2):
         img1 = skimage.transform.resize(image1, (224, 224, 3))
-        img1 = img1.transpose((2, 0, 1))
-        img1 = (img1[0] + img1[1] + img1[2]) / (3 * 255.0)
-        img1_threshold = skimage.filters.threshold_li(img1)
-        img1_mask = numpy.zeros_like(img1)
-        img1_mask[img1 < img1_threshold] = 1
-        img1_mask[img1 > img1_threshold] = 2
-        img1 = skimage.segmentation.watershed(img1, img1_mask)
-        img1 = img1.astype(numpy.float32)
+        img1 = skimage.color.rgb2gray(img1)
+        img1_1 = skimage.filters.gaussian(img1, sigma=2)
+        img1_2 = skimage.filters.gaussian(img1, sigma=1)
+        img1 = (img1_1 - img1_2).astype(numpy.float32)
         img1 = torch.from_numpy(img1)
 
         img2 = skimage.transform.resize(image2, (224, 224, 3))
-        img2 = img2.transpose((2, 0, 1))
-        img2 = (img2[0] + img2[1] + img2[2]) / (3 * 255.0)
-        img2_threshold = skimage.filters.threshold_li(img2)
-        img2_mask = numpy.zeros_like(img2)
-        img2_mask[img2 < img2_threshold] = 1
-        img2_mask[img2 > img2_threshold] = 2
-        img2 = skimage.segmentation.watershed(img2, img2_mask)
-        img2 = img2.astype(numpy.float32)
+        img2 = skimage.color.rgb2gray(img2)
+        img2_1 = skimage.filters.gaussian(img2, sigma=2)
+        img2_2 = skimage.filters.gaussian(img2, sigma=1)
+        img2 = (img2_1 - img2_2).astype(numpy.float32)
         img2 = torch.from_numpy(img2)
 
         img = torch.stack((img1, img2))
-        img = torch.unsqueeze(img, dim=0)
+        img = torch.unsqueeze(img, 0)
 
-        # plt.subplot(1, 2, 1)
-        # plt.imshow(img1)
-        #
-        # plt.subplot(1, 2, 2)
-        # plt.imshow(img2)
-        #
-        # plt.show()
+        if self.model.training:
+            self.model.eval()
 
         result = self.model(img.cuda())
 
@@ -293,7 +261,7 @@ class JudgerManager:
                 answer_tmp = image[torch.floor(answer_tmp_list[j][1]).int():torch.floor(answer_tmp_list[j][3]).int(),
                              torch.floor(answer_tmp_list[j][0]).int(): torch.floor(answer_tmp_list[j][2]).int()]
 
-                rate = self.test(question_tmp, answer_tmp)[0]
+                rate = self.test(answer_tmp, question_tmp)[0]
 
                 if select_rate < rate:
                     # answer_list.append(answer_tmp_list[j])
@@ -302,14 +270,16 @@ class JudgerManager:
                     select_index = j
                     select_rate = rate
 
-            answer_list.append(answer_tmp_list[select_index])
-            used_list.append(select_index)
+            if select_index != -1:
+                answer_list.append(answer_tmp_list[select_index])
+                used_list.append(select_index)
 
         return question_tmp_list, answer_list
 
 
 def _judger_collate(batch):
-    d = [item[0] for item in batch]
-    data = torch.stack(d, 0)
+    d1 = [item[0] for item in batch]
+    data = torch.stack(d1, 0)
+
     label = [item[1] for item in batch]
     return data, torch.from_numpy(numpy.array(label))

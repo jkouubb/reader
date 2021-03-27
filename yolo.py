@@ -192,8 +192,8 @@ class YOLO(nn.Module):
         grid_y = grid_x.t()
         grid_x = grid_x.view([1, 1, grid_size, grid_size]).float().cuda()
         grid_y = grid_y.view([1, 1, grid_size, grid_size]).float().cuda()
-        pred_boxes[..., 0] = x.data + grid_x  # （param, param, gride, gride）
-        pred_boxes[..., 1] = y.data + grid_y
+        pred_boxes[..., 0] = torch.clamp(x.data + grid_x, min=0, max=416)  # （param, param, gride, gride）
+        pred_boxes[..., 1] = torch.clamp(y.data + grid_y, min=0, max=416)
         pred_boxes[..., 2] = torch.exp(w.data) * anchor_w  # # （param， 3， param， param）
         pred_boxes[..., 3] = torch.exp(h.data) * anchor_h
 
@@ -205,7 +205,7 @@ class YOLO(nn.Module):
 
 
 class YOLOManager:
-    def __init__(self, param_path, class_number, small_anchors, middle_anchors, large_anchors, train_epoch=300, learn_rate=1e-2, batch_size=4, ignore_threshold=0.3,
+    def __init__(self, param_path, class_number, small_anchors, middle_anchors, large_anchors, train_epoch=300, learn_rate=1e-3, batch_size=4, ignore_threshold=0.3,
                  p_threshold=0.85, nms_threshold=0.01):
         self.model = YOLO(class_number, small_anchors, middle_anchors, large_anchors)
         self.param_path = param_path
@@ -230,9 +230,8 @@ class YOLOManager:
         train_data_set = YOLODataset(file_path=train_file_path)
         train_data_loader = torch.utils.data.DataLoader(dataset=train_data_set, batch_size=self.batch_size,
                                                         collate_fn=_yolo_collate)
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learn_rate, )
-        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer=optimizer, milestones=[20,], gamma=0.1,)
-        # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer, factor=0.2, patience=2, cooldown=1, min_lr=0, eps=1e-10)
+        optimizer = torch.optim.Adam(params=self.model.parameters(), lr=self.learn_rate, weight_decay=5e-4)
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer=optimizer, milestones=[20, 90, 150, 220], gamma=0.1)
 
         print('training......')
         self.model.train()
@@ -334,7 +333,7 @@ class YOLOManager:
             annotation_tmp = annotations_tensor[i].repeat((len(predictions), 1)).cuda()
 
             # 计算iou, 取iou值最大的预测anchor作为负责预测此annotation的anchor
-            iou_matrix = utils.calculate_iou(predictions, annotation_tmp)
+            iou_matrix = utils.calculate_giou(predictions, annotation_tmp)
 
             # 先更新忽略例
             ignore_mask_tmp = torch.gt(iou_matrix, self.ignore_threshold)
@@ -344,7 +343,7 @@ class YOLOManager:
             annotation_tmp = annotations_tensor[i].repeat((len(predictions), 1)).cuda()
 
             # 计算iou, 取iou值最大的预测anchor作为负责预测此annotation的anchor
-            iou_matrix = utils.calculate_iou(predictions, annotation_tmp)
+            iou_matrix = utils.calculate_giou(predictions, annotation_tmp)
 
             max_iou_value, max_iou_index = torch.max(iou_matrix, dim=0)
             match_matrix[max_iou_index] = i
@@ -364,7 +363,7 @@ class YOLOManager:
             annotations_match[i] = annotations_tensor[match_matrix[positive_mask][i].long()]
             label_matrix[i][annotations_match[i][4].long()] = 1
 
-        box_loss = (1 - utils.calculate_iou(positive_predictions, annotations_match)).sum()
+        box_loss = utils.calculate_ciou_loss(positive_predictions, annotations_match).sum()
         classify_loss = bce(positive_predictions[:, 5:5 + self.class_number], label_matrix).sum()
         positive_object_loss = (-1 * torch.log(torch.clamp(positive_predictions[:, 4], min=1e-15))).sum()
 
@@ -414,7 +413,7 @@ class YOLOManager:
                         continue
 
                     single_output_copy = single_output.repeat((len(tmp_list), 1))
-                    iou_vector = utils.calculate_iou(single_output_copy, tmp_list)
+                    iou_vector = utils.calculate_giou(single_output_copy, tmp_list)
 
                     if torch.max(iou_vector) < self.nms_threshold:
                         tmp = torch.empty((1, len(single_output))).cuda()
