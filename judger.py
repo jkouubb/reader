@@ -75,7 +75,7 @@ class Judger(nn.Module):
         x = self.average_pool(x)
         x = torch.flatten(x, 1)
         x = self.full_connect(x)
-        # x = self.sigmoid(x)
+        x = self.sigmoid(x)
 
         return x
 
@@ -123,13 +123,7 @@ class JudgerDataSet(torch.utils.data.Dataset):
 
         image = torch.stack((image1, image2))
 
-        # label = [0, 0]
-        # label[self.index_list[index][2]] = 1
-
         label = [self.index_list[index][2]]
-
-        if label[0] == 0:
-            label[0] = -1
 
         return image, label
 
@@ -158,13 +152,23 @@ class JudgerManager:
         train_data_loader = torch.utils.data.DataLoader(dataset=train_data_set, batch_size=self.batch_size,
                                                         collate_fn=_judger_collate)
 
-        optimizer = torch.optim.Adam(params=self.model.parameters(), lr=self.learn_rate, weight_decay=5e-4)
-        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer=optimizer, milestones=[20, 90, 150, 220], gamma=0.1)
+        weight_p, bias_p = [], []
+        for name, p in self.model.named_parameters():
+            if 'bias' in name:
+                bias_p += [p]
+            else:
+                weight_p += [p]
 
-        bce = nn.BCELoss()
+        optimizer = torch.optim.SGD([
+          {'params': weight_p, 'weight_decay': 5e-4},
+          {'params': bias_p, 'weight_decay': 0}
+          ], lr=self.learn_rate, momentum=0.9)
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer=optimizer, milestones=[50, 100], gamma=0.1, last_epoch=-1)
 
         self.model.train()
         loss_list = []
+
+        bce = torch.nn.BCELoss()
 
         for i in range(self.train_epoch):
             average_loss = 0.0
@@ -177,7 +181,7 @@ class JudgerManager:
 
                 result = self.model(images.cuda())
 
-                loss = torch.abs(1 - result * annotations.cuda()).sum()
+                loss = bce(result, annotations.float().cuda()).sum()
 
                 average_loss += loss
 
@@ -187,7 +191,7 @@ class JudgerManager:
 
             loss_list.append(average_loss / train_data_set.__len__().__float__())
 
-            # scheduler.step()
+            scheduler.step()
 
             print('average loss in epoch {}: {}'.format(i + 1, average_loss / train_data_set.__len__().__float__()))
 
@@ -218,8 +222,7 @@ class JudgerManager:
         img = torch.stack((img1, img2))
         img = torch.unsqueeze(img, 0)
 
-        if self.model.training:
-            self.model.eval()
+        self.model.eval()
 
         result = self.model(img.cuda())
 
@@ -264,9 +267,6 @@ class JudgerManager:
                 rate = self.test(answer_tmp, question_tmp)[0]
 
                 if select_rate < rate:
-                    # answer_list.append(answer_tmp_list[j])
-                    # used_list.append(j)
-                    # break
                     select_index = j
                     select_rate = rate
 
