@@ -205,6 +205,7 @@ class JudgerManager:
         torch.cuda.empty_cache()
 
     def test(self, image1, image2):
+
         img1 = skimage.transform.resize(image1, (224, 224, 3))
         img1 = skimage.color.rgb2gray(img1)
         img1_1 = skimage.filters.gaussian(img1, sigma=2)
